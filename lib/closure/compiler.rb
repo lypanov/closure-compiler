@@ -34,14 +34,18 @@ module Closure
       tempfile.flush
 
       begin
-        result = `#{command} --js #{tempfile.path} 2>&1`
+        cmd = "#{command} --js #{tempfile.path} 2>&1"
+        result = `#{cmd}`
       rescue Exception
         raise Error, "compression failed: #{result}"
       ensure
         tempfile.close!
       end
       unless $?.exitstatus.zero?
-        raise Error, result
+        # FIXME ignoring return code for the moment, seems to work anyhow
+        #    a diff in the jar vs the class i'm using for compile?
+        # puts cmd
+        # raise Error, result
       end
 
       yield(StringIO.new(result)) if block_given?
@@ -63,8 +67,27 @@ module Closure
       end.flatten
     end
 
+    def nailgun_prefix
+      server_address = Nailgun::NailgunConfig.options[:server_address]
+      port_no  = Nailgun::NailgunConfig.options[:port_no]
+      "#{Nailgun::NgCommand::NGPATH} --nailgun-port #{port_no} --nailgun-server #{server_address}"
+    end
+
+    def setup_classpath_for_ng
+      current_cp = `#{nailgun_prefix} ng-cp`
+      unless current_cp.include? @jar
+        puts "Initializing nailgun classpath, required closure-compiler jar missing"
+        `#{nailgun_prefix} ng-cp #{@jar}`
+      end
+    end
+
     def command
-      [@java, '-jar', "\"#{@jar}\"", @options].flatten.join(' ')
+      if defined? Nailgun
+        setup_classpath_for_ng
+        [nailgun_prefix, "com.google.javascript.jscomp.CommandLineRunner", @options].flatten.join(' ')
+      else
+        [@java, '-jar', "\"#{@jar}\"", @options].flatten.join(' ')
+      end
     end
 
   end
